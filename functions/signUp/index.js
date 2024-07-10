@@ -71,7 +71,7 @@ const singUp = async (req, res) => {
             from: `${process.env.SENDGRID_SENDER_NAME} ${process.env.SENDGRID_SENDER_EMAIL}`,
             to: `${body.email}`,
             subject: `Registro de usuario exitoso en ${process.env.AION_NAME}`,
-            html: `<p>Hola ${body.display_name}, has sido registrado en la plataforma de ${process.env.AION_NAME}.</p><p>Esta es su clave: <b>${clave}</b></p><p>Al iniciar sesión se le solicitará cambiarla.</p><p>Este es el link <a href="${process.env.AION_URL}">${process.env.AION_NAME}</a></p><p>Atentamente</p><p><b>El equipo de ${process.env.AION_NAME}</b></p>`,
+            html: `<p>Hola ${body.display_name}, has sido registrado en la plataforma de ${process.env.AION_NAME}.</p><p>Su usuario es su correo electrónico y esta es su clave: <b>${clave}</b></p><p>Al iniciar sesión se le solicitará cambiarla.</p><p>Este es el link <a href="${process.env.AION_URL}">${process.env.AION_NAME}</a></p><p>Atentamente</p><p><b>El equipo de ${process.env.AION_NAME}</b></p>`,
           }, (err, info) => {
             if (err) {
               console.log(err);
@@ -108,13 +108,12 @@ const singUp = async (req, res) => {
     } else {
       throw new Error("El usuario ya se encuentra creado.");
     }
-    res.status(201).send({status: 200, message: "Usuario creado exitósamente."});
+    res.status(201).send({status: 201, message: "Usuario creado exitósamente."});
   } catch (error) {
     res.status(403).send({status: 403, message: `Ocurrió el siguiente error: ${error}`});
   }
 };
 
-exports.singUp = onRequest(
-    {cors: [/aion-crml-asm\.flutterflow\.app$/, /app\.flutterflow\.io\/debug$/]},
-    singUp,
-);
+exports.singUp = onRequest({
+  cors: [/aion-crml-asm\.flutterflow\.app$/, /app\.flutterflow\.io\/debug$/],
+}, singUp);

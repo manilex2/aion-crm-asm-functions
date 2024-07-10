@@ -6,17 +6,6 @@ const admin = require("firebase-admin");
 const {getFirestore} = require("firebase-admin/firestore");
 const nodemailer = require("nodemailer");
 const bcrypt = require("bcrypt");
-const aws = require("@aws-sdk/client-ses");
-const {defaultProvider} = require("@aws-sdk/credential-provider-node");
-const AWS = require("aws-sdk");
-
-const credentials = new AWS.SharedIniFileCredentials({profile: "manuel"});
-
-const ses = new aws.SES({
-  apiVersion: "2010-12-01",
-  region: "us-east-2",
-  defaultProvider,
-});
 
 admin.initializeApp();
 setGlobalOptions({
@@ -43,17 +32,13 @@ function claveProv() {
 }
 
 const singUp = async (req, res) => {
-  console.log(credentials);
-  AWS.config.credentials = credentials;
-  AWS.config.getCredentials((err) => {
-    if (err) console.log(err.stack);
-    // credentials not loaded
-    else {
-      console.log("Access key:", AWS.config.credentials.accessKeyId);
-    }
-  });
   const transporter = nodemailer.createTransport({
-    SES: {ses, aws},
+    host: process.env.SENDGRID_HOST,
+    port: process.env.SENDGRID_PORT,
+    auth: {
+      user: process.env.SENDGRID_USER,
+      pass: process.env.SENDGRID_API_KEY,
+    },
   });
 
   const body = req.body;
@@ -83,19 +68,10 @@ const singUp = async (req, res) => {
         console.log("Usuario creado con éxito:", userFirebase.uid);
         try {
           transporter.sendMail({
-            from: "notificaciones@aionadmin.com",
+            from: `${process.env.SENDGRID_SENDER_NAME} ${process.env.SENDGRID_SENDER_EMAIL}`,
             to: `${body.email}`,
-            subject: "Mensaje de prueba",
-            text: "Hola esto es un mensaje de prueba",
-            ses: {
-              // optional extra arguments for SendRawEmail
-              Tags: [
-                {
-                  Name: "tag_name",
-                  Value: "tag_value",
-                },
-              ],
-            },
+            subject: `Registro de usuario exitoso en ${process.env.AION_NAME}`,
+            html: `<p>Hola ${body.display_name}, has sido registrado en la plataforma de ${process.env.AION_NAME}.</p><p>Esta es su clave: <b>${clave}</b></p><p>Al iniciar sesión se le solicitará cambiarla.</p><p>Este es el link <a href="${process.env.AION_URL}">${process.env.AION_NAME}</a></p><p>Atentamente</p><p><b>El equipo de ${process.env.AION_NAME}</b></p>`,
           }, (err, info) => {
             if (err) {
               console.log(err);
@@ -117,11 +93,11 @@ const singUp = async (req, res) => {
           display_name: body.display_name,
           photo_url: !body.photo_url? "" : body.photo_url,
           phone_number: body.phone_number,
-          rol: body.rol,
+          rol: body.rol.toLowerCase(),
           uid: userFirebase.uid,
           created_time: new Date(userFirebase.metadata.creationTime),
-          enabled: true,
-          instId: instRef,
+          enable: body.enable,
+          institutionId: instRef,
           firstLogin: true,
         };
         newUserRef.set(usuario);
@@ -138,4 +114,7 @@ const singUp = async (req, res) => {
   }
 };
 
-exports.singUp = onRequest(singUp);
+exports.singUp = onRequest(
+    {cors: [/aion-crml-asm\.flutterflow\.app$/, /app\.flutterflow\.io\/debug$/]},
+    singUp,
+);

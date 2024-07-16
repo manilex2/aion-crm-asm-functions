@@ -67,6 +67,19 @@ const singUp = async (req, res) => {
         const userFirebase = await auth.createUser({...user, uid: `${newUserRef.id}`});
         console.log("Usuario creado con éxito:", userFirebase.uid);
         try {
+          const usuario = {
+            email: body.email,
+            display_name: body.display_name,
+            photo_url: !body.photo_url? "" : body.photo_url,
+            phone_number: body.phone_number,
+            rol: body.rol.toLowerCase(),
+            uid: userFirebase.uid,
+            created_time: new Date(userFirebase.metadata.creationTime),
+            enable: body.enable,
+            institutionId: instRef,
+            firstLogin: true,
+          };
+          newUserRef.set(usuario);
           transporter.sendMail({
             from: `${process.env.SENDGRID_SENDER_NAME} ${process.env.SENDGRID_SENDER_EMAIL}`,
             to: `${body.email}`,
@@ -88,19 +101,6 @@ const singUp = async (req, res) => {
         } catch (error) {
           throw new Error(error);
         }
-        const usuario = {
-          email: body.email,
-          display_name: body.display_name,
-          photo_url: !body.photo_url? "" : body.photo_url,
-          phone_number: body.phone_number,
-          rol: body.rol.toLowerCase(),
-          uid: userFirebase.uid,
-          created_time: new Date(userFirebase.metadata.creationTime),
-          enable: body.enable,
-          institutionId: instRef,
-          firstLogin: true,
-        };
-        newUserRef.set(usuario);
       } catch (error) {
         console.error("Error al crear usuario:", error);
         throw new Error(error);

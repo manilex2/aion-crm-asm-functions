@@ -1,5 +1,5 @@
 /* eslint-disable max-len */
-require("dotenv").config("./.env");
+require("dotenv").config({path: "./.env"});
 const {onRequest} = require("firebase-functions/v2/https");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const admin = require("firebase-admin");

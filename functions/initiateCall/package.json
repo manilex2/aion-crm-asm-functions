@@ -1,0 +1,26 @@
+{
+  "name": "initiate-call",
+  "version": "1.0.0",
+  "description": "Inicializar la llamada para Twilio",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "author": "Manuel Pereira",
+  "license": "ISC",
+  "private": true,
+  "engines": {
+    "node": "18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "firebase-admin": "^12.2.0",
+    "firebase-functions": "^5.0.1",
+    "twilio": "^5.2.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.15.0",
+    "eslint-config-google": "^0.14.0",
+    "firebase-functions-test": "^3.1.0"
+  }
+}

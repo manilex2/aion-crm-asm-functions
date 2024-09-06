@@ -1,0 +1,27 @@
+{
+  "name": "whatsapp-notif-payments-aion-crm",
+  "version": "1.0.0",
+  "description": "Notificacion de Pagos por WhatsSpp para AION CRM",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "author": "Manuel Pereira",
+  "license": "ISC",
+  "private": true,
+  "engines": {
+    "node": "18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "firebase-admin": "^12.2.0",
+    "firebase-functions": "^5.0.1",
+    "luxon": "^3.5.0",
+    "whatsapp": "^0.0.5-Alpha"
+  },
+  "devDependencies": {
+    "eslint": "^8.15.0",
+    "eslint-config-google": "^0.14.0",
+    "firebase-functions-test": "^3.1.0"
+  }
+}

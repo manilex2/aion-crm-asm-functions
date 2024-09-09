@@ -1,6 +1,5 @@
 /* eslint-disable max-len */
 require("dotenv").config({path: "./.env"});
-const {onRequest} = require("firebase-functions/v2/https");
 const {setGlobalOptions} = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 // eslint-disable-next-line no-unused-vars
@@ -8,6 +7,7 @@ const {Timestamp, QueryDocumentSnapshot, DocumentData} = require("firebase-admin
 const {getFirestore} = require("firebase-admin/firestore");
 const WhatsApp = require("whatsapp");
 const {DateTime} = require("luxon");
+const {onSchedule} = require("firebase-functions/v2/scheduler");
 
 admin.initializeApp();
 setGlobalOptions({
@@ -348,7 +348,7 @@ function createTemplateData(contacto, alicuotas, cuotas, tipo) {
   return templateData;
 }
 
-const whatsappNotif = async (req, res) => {
+const whatsappNotif = async (_, res) => {
   const db = getFirestore();
   const wa = new WhatsApp();
   try {
@@ -425,13 +425,43 @@ const whatsappNotif = async (req, res) => {
         await paymentRef.update({msgSendPrev: true});
       }
     }
-    res.status(201).send({status: 201, message: "Notificaciones enviadas exitósamente."});
+    res.setHeader("Content-Type", "application/json");
+    res.status(201).send({message: "Notificaciones enviadas exitósamente."});
   } catch (error) {
     console.log(error);
-    res.status(403).send({status: 403, message: `Ocurrió el siguiente error: ${error}`});
+    console.error("Error generando el PDF: ", error);
+    res.setHeader("Content-Type", "application/json");
+
+    // Utiliza el message del objeto Error
+    const errorMessage = error.message || "Ocurrió un error desconocido";
+
+    // Chequea el tipo de error con los mensajes que iniciaste en los throw
+    if (errorMessage.startsWith("BAD REQUEST")) {
+      res.status(400).json({
+        message: `Solicitud incorrecta: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("UNAUTHORIZED")) {
+      res.status(401).json({
+        message: `Error de autorización: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("FORBIDDEN")) {
+      res.status(403).json({
+        message: `Prohibido: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("NOT FOUND")) {
+      res.status(404).json({
+        message: `Recurso no encontrado: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("CONFLICT")) {
+      res.status(409).json({
+        message: `Conflicto: ${errorMessage}`,
+      });
+    } else {
+      res.status(500).json({
+        message: `Error interno del servidor: ${errorMessage}`,
+      });
+    }
   }
 };
 
-exports.whatsappNotif = onRequest({
-  cors: [/aion-crml-asm\.flutterflow\.app$/, /app\.flutterflow\.io\/debug$/],
-}, whatsappNotif);
+exports.whatsappNotif = onSchedule("30 14 * * 1-5", whatsappNotif);

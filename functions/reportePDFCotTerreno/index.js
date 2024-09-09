@@ -12,18 +12,22 @@ const {getStorage} = require("firebase-admin/storage");
 const {
   PDFDocument,
   rgb,
-  StandardFonts,
   PageSizes,
   // eslint-disable-next-line no-unused-vars
   PDFPage,
 } = require("pdf-lib");
+const fontkit = require("@pdf-lib/fontkit");
+const serviceAccount = require("./serviceAccountKey.json");
 
-admin.initializeApp();
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 setGlobalOptions({
   maxInstances: 10,
   timeoutSeconds: 540,
   memory: "1GiB",
 });
+const fs = require("fs");
 
 /**
  * Función para crear pdf para cotización del terreno.
@@ -33,25 +37,29 @@ setGlobalOptions({
 const createPdf = async (req, res) => {
   const db = getFirestore();
   try {
-    const clientRef = db.collection("contactos").doc(req.body.clienteId);
+    const {clienteId, landsQuoteId, planoUrl, logoUrl} = req.body;
+
+    if (!clienteId || !landsQuoteId || !planoUrl || !logoUrl) {
+      // eslint-disable-next-line max-len
+      throw new Error("BAD REQUEST: No se proporcionaron alguno de los siguientes parámetros: clienteId, landsQuoteId, planoUrl y/o logoUrl");
+    }
+    const clientRef = db.collection("contactos").doc(clienteId);
     const clientData = (await clientRef
         .get())
         .data();
 
     const cotizacionData = (await db
         .collection("landsQuote")
-        .where("clienteId", "==", clientRef)
-        .get()).docs.map((landquote) => {
-      return landquote.data();
-    });
-
-    console.log(cotizacionData[0]);
+        .doc(landsQuoteId)
+        .get()).data();
 
     let firstExpiration;
     const nowDate = formatDate(new Date(Date.now()), true);
 
-    if (cotizacionData[0].firstExpiration) {
-      firstExpiration = formatDate(cotizacionData[0].firstExpiration, false);
+    if (cotizacionData.firstExpiration) {
+      firstExpiration = formatDate(
+          cotizacionData.firstExpiration, false,
+      );
     }
 
     // Crear un nuevo documento PDF tamaño carta
@@ -61,13 +69,11 @@ const createPdf = async (req, res) => {
 
     // eslint-disable-next-line max-len
     // Cargar la imagen de la captura de pantalla (la imagen debe estar en una URL accesible públicamente)
-    const logoUrl = "https://vistalmar.com.ec/wp-content/uploads/2018/10/logo-web-adapt.png"; // Reemplazar con una URL accesible
     const logoBytes = await fetch(logoUrl).then((res) => res.arrayBuffer());
     const logoImage = await pdfDoc.embedPng(logoBytes);
     const logoDims = logoImage.scale(0.5); // Escalar la imagen si es necesario
 
-    const image1Url = "https://vistalmar.com.ec/wp-content/uploads/2018/12/RENDER-lotes.jpg";
-    const image1Bytes = await fetch(image1Url).then((res) => res.arrayBuffer());
+    const image1Bytes = await fetch(planoUrl).then((res) => res.arrayBuffer());
     const image1Image = await pdfDoc.embedJpg(image1Bytes);
     const image1Dims = image1Image.scale(0.2);
 
@@ -91,8 +97,13 @@ const createPdf = async (req, res) => {
     });
 
     // Establecer las fuentes para el texto
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    pdfDoc.registerFontkit(fontkit);
+    const font = await pdfDoc.embedFont(
+        fs.readFileSync("./montserrat 2/Montserrat-Regular.otf"),
+    );
+    const fontBold = await pdfDoc.embedFont(
+        fs.readFileSync("./montserrat 2/Montserrat-Bold.otf"),
+    );
 
     // Título
     page.drawText("COTIZACION DE TERRENO", {
@@ -124,43 +135,43 @@ const createPdf = async (req, res) => {
         y: yFields,
       }, {
         label: "Solar:",
-        value: `${cotizacionData[0].solar}` || "",
+        value: `${cotizacionData.solar}` || "",
         x: xFields,
         y: yFields,
       }, {
         label: "Área de Terreno (M2):",
-        value: `${cotizacionData[0].landAreaM2} m2` || "",
+        value: `${cotizacionData.landAreaM2} m2` || "",
         x: xFields,
         y: yFields,
       }, {
         label: "Precio:",
-        value: `${cotizacionData[0].price?
-          cotizacionData[0].price.toFixed(2) :
+        value: `${cotizacionData.price?
+          "$" + cotizacionData.price.toFixed(2) :
           ""}`,
         x: xFields,
         y: yFields,
       }, {
         label: "Reserva:",
-        value: `${cotizacionData[0].booking?
-          cotizacionData[0].booking.toFixed(2) :
+        value: `${cotizacionData.booking?
+          "$" + cotizacionData.booking.toFixed(2) :
           ""}`,
         x: xFields,
         y: yFields,
       }, {
         label: "ENTRADA - RESERVA:",
-        value: `${cotizacionData[0].entrancePercentage}%` || "",
+        value: `${cotizacionData.entrancePercentage}%` || "",
         x: xFields,
         y: yFields,
-        value2: `${cotizacionData[0].entranceBooking?
-          cotizacionData[0].entranceBooking.toFixed(2) :
+        value2: `${cotizacionData.entranceBooking?
+          "$" + cotizacionData.entranceBooking.toFixed(2) :
           ""}`,
       }, {
         label: "Cuotas mensuales:",
-        value: `${cotizacionData[0].monthQuotasAmount}` || "",
+        value: `${cotizacionData.monthQuotasAmount}` || "",
         x: xFields,
         y: yFields,
-        value2: `${cotizacionData[0].monthQuotasValue?
-          cotizacionData[0].monthQuotasValue.toFixed(2) :
+        value2: `${cotizacionData.monthQuotasValue?
+          "$" + cotizacionData.monthQuotasValue.toFixed(2) :
           ""}`,
       }, {
         label: "Primer Vencimiento:",
@@ -169,15 +180,15 @@ const createPdf = async (req, res) => {
         y: yFields,
       }, {
         label: "Saldo CRÉDITO BANCARIO:",
-        value: `${cotizacionData[0].bankCreditBalancePercentage}%`,
+        value: `${cotizacionData.bankCreditBalancePercentage}%`,
         x: xFields,
         y: yFields,
-        value2: `${cotizacionData[0].bankCreditBalanceValue?
-          cotizacionData[0].bankCreditBalanceValue.toFixed(2) :
+        value2: `${cotizacionData.bankCreditBalanceValue?
+          "$" + cotizacionData.bankCreditBalanceValue.toFixed(2) :
           ""}`,
       }, {
         label: "Cuotas:",
-        value: `${cotizacionData[0].quotas}` || "",
+        value: `${cotizacionData.quotas}` || "",
         x: xFields,
         y: yFields,
       }, {
@@ -195,7 +206,9 @@ const createPdf = async (req, res) => {
       page.drawText(field.label, {
         x: field.x,
         y: yFields,
-        size: fontSize,
+        size: field.label == "Saldo CRÉDITO BANCARIO:" ?
+        fontSize - 1 :
+        fontSize,
         font: fontBold,
         color: rgb(0, 0, 0),
       });
@@ -206,7 +219,7 @@ const createPdf = async (req, res) => {
           y: yFields - 5,
           width: 50,
           height: rowHeight,
-          borderColor: rgb(0, 0, 0),
+          borderColor: rgb(0.635, 0.635, 0.635),
           borderWidth: 1,
         });
 
@@ -215,7 +228,7 @@ const createPdf = async (req, res) => {
           y: yFields - 5,
           width: 140,
           height: rowHeight,
-          borderColor: rgb(0, 0, 0),
+          borderColor: rgb(0.635, 0.635, 0.635),
           borderWidth: 1,
         });
 
@@ -245,7 +258,7 @@ const createPdf = async (req, res) => {
         y: yFields - 5,
         width: 200,
         height: rowHeight,
-        borderColor: rgb(0, 0, 0),
+        borderColor: rgb(0.635, 0.635, 0.635),
         borderWidth: 1,
       });
 
@@ -265,8 +278,8 @@ const createPdf = async (req, res) => {
       y: yFields - 90,
       width: 140,
       height: 100,
-      borderWidth: 1,
-      borderColor: rgb(0.004, 0, 0.329),
+      borderWidth: 2,
+      borderColor: rgb(0.635, 0.635, 0.635),
       color: rgb(1, 1, 1),
       opacity: 0.5,
       borderOpacity: 0.75,
@@ -274,7 +287,7 @@ const createPdf = async (req, res) => {
 
     page.drawText("Firma Autorizada:", {
       x: xFields + 35,
-      y: yFields,
+      y: yFields - 10,
       font: fontBold,
       size: fontSize,
       color: rgb(0, 0, 0),
@@ -303,8 +316,8 @@ const createPdf = async (req, res) => {
       y: yFields - 90,
       width: 140,
       height: 100,
-      borderWidth: 1,
-      borderColor: rgb(0.004, 0, 0.329),
+      borderWidth: 2,
+      borderColor: rgb(0.635, 0.635, 0.635),
       color: rgb(1, 1, 1),
       opacity: 0.5,
       borderOpacity: 0.75,
@@ -312,7 +325,7 @@ const createPdf = async (req, res) => {
 
     page.drawText("Cliente:", {
       x: xFields + 55,
-      y: yFields,
+      y: yFields - 10,
       font: fontBold,
       size: fontSize,
       color: rgb(0, 0, 0),
@@ -392,7 +405,7 @@ const createPdf = async (req, res) => {
       drawFooter(p, fontBold, footerFontSize, width); // Dibujar solo el pie de página común
     });
     // Guardar el PDF en memoria
-    const pdfBytes = await pdfDoc.save();
+    const pdfBytes = Buffer.from(await pdfDoc.save());
 
     const storage = getStorage().bucket("aion-crm-asm.appspot.com");
 
@@ -411,7 +424,7 @@ const createPdf = async (req, res) => {
 
     (await db
         .collection("landsQuote")
-        .doc(cotizacionData[0].id)
+        .doc(landsQuoteId)
         .update({
           registrationDate: FieldValue.serverTimestamp(),
           landQuoteUrl: file.baseUrl,
@@ -420,19 +433,57 @@ const createPdf = async (req, res) => {
     // Obtener URL pública del archivo subido
     const [url] = await file.getSignedUrl({
       action: "read",
-      expires: "03-09-2025",
+      expires: Date.now() + 60 * 60 * 1000,
     });
 
-    // Configurar la respuesta como un archivo PDF
+    /* // Configurar la respuesta como un archivo PDF
     res.setHeader("Content-Type", "application/pdf");
     // eslint-disable-next-line max-len
-    res.setHeader("Content-Disposition", "attachment; filename=cotizacion_terreno.pdf");
+    res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=cotizacion_terreno.pdf",
+    ); */
 
+    // Configurar la respuesta como un archivo PDF
+    res.setHeader("Content-Type", "application/json");
     // Enviar el PDF como respuesta
     res.status(200).send({message: url});
+
+    /* res.setHeader("Content-Type", "application/json");
+    res.status(200).send({message: url}); */
   } catch (error) {
     console.error("Error generando el PDF: ", error);
-    res.status(500).send("Error generando el PDF: ", error);
+    res.setHeader("Content-Type", "application/json");
+
+    // Utiliza el message del objeto Error
+    const errorMessage = error.message || "Ocurrió un error desconocido";
+
+    // Chequea el tipo de error con los mensajes que iniciaste en los throw
+    if (errorMessage.startsWith("BAD REQUEST")) {
+      res.status(400).json({
+        message: `Solicitud incorrecta: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("UNAUTHORIZED")) {
+      res.status(401).json({
+        message: `Error de autorización: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("FORBIDDEN")) {
+      res.status(403).json({
+        message: `Prohibido: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("NOT FOUND")) {
+      res.status(404).json({
+        message: `Recurso no encontrado: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("CONFLICT")) {
+      res.status(409).json({
+        message: `Conflicto: ${errorMessage}`,
+      });
+    } else {
+      res.status(500).json({
+        message: `Error interno del servidor: ${errorMessage}`,
+      });
+    }
   }
 };
 
@@ -448,10 +499,8 @@ exports.reportePDFCotTerreno = onRequest({
  * @param {number} width Ancho para el footer
  */
 function drawFooter(currentPage, font, footerSize, width) {
-  const footerText = `
-    CC. Río Plaza Piso 1 - Oficina 1 - Km 1 Vía a Samborondón
-    Samborondón
-    Celular Oficina Matriz: 0968265924`;
+  // eslint-disable-next-line max-len
+  const footerText = `CC. Río Plaza Piso 1 - Oficina 1 - Km 1 Vía a Samborondón\nSamborondón\nCelular Oficina Matriz: 0968265924`;
 
   const footerLines = footerText.trim().split("\n");
   let footerYPosition = 50;

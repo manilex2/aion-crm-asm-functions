@@ -29,48 +29,6 @@
       ]
     },
     {
-      "source": "functions/initiateCall",
-      "codebase": "initiate-call",
-      "ignore": [
-        "node_modules",
-        ".git",
-        "firebase-debug.log",
-        "firebase-debug.*.log",
-        "*.local"
-      ],
-      "predeploy": [
-        "npm --prefix \"$RESOURCE_DIR\" run lint"
-      ]
-    },
-    {
-      "source": "functions/startCall",
-      "codebase": "start-call",
-      "ignore": [
-        "node_modules",
-        ".git",
-        "firebase-debug.log",
-        "firebase-debug.*.log",
-        "*.local"
-      ],
-      "predeploy": [
-        "npm --prefix \"$RESOURCE_DIR\" run lint"
-      ]
-    },
-    {
-      "source": "functions/processCall",
-      "codebase": "process-call",
-      "ignore": [
-        "node_modules",
-        ".git",
-        "firebase-debug.log",
-        "firebase-debug.*.log",
-        "*.local"
-      ],
-      "predeploy": [
-        "npm --prefix \"$RESOURCE_DIR\" run lint"
-      ]
-    },
-    {
       "source": "functions/whatsappNotif",
       "codebase": "whatsapp-payments-notif",
       "ignore": [
@@ -97,6 +55,39 @@
       "predeploy": [
         "npm --prefix \"$RESOURCE_DIR\" run lint"
       ]
+    },
+    {
+      "source": "functions/reportePDFLeadStatus",
+      "codebase": "reporte-pdf-lead-status",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run lint"
+      ]
+    },
+    {
+      "source": "functions/reportePDFContactFailed",
+      "codebase": "reporte-pdf-contact-failed",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run lint"
+      ]
     }
-  ]
+  ],
+  "extensions": {
+    "firestore-algolia-search": "algolia/firestore-algolia-search@1.2.7",
+    "firestore-algolia-search-8cqi": "algolia/firestore-algolia-search@1.2.7",
+    "firestore-algolia-search-z8a3": "algolia/firestore-algolia-search@1.2.7"
+  }
 }

@@ -16,9 +16,40 @@ const changePassword = async (req, res) => {
     await auth.updateUser(`${req.body.uid}`, {
       password: `${req.body.clave}`,
     });
-    res.status(200).send({status: 200, message: `Contraseña cambiada exitosamente para el usuario: ${req.body.email}`});
+    res.status(200).send({message: `Contraseña cambiada exitosamente para el usuario: ${req.body.email}`});
   } catch (error) {
-    res.status(403).send({status: 403, message: `Ocurrió el siguiente error: ${error}`});
+    console.error("Error generando el PDF: ", error);
+    res.setHeader("Content-Type", "application/json");
+
+    // Utiliza el message del objeto Error
+    const errorMessage = error.message || "Ocurrió un error desconocido";
+
+    // Chequea el tipo de error con los mensajes que iniciaste en los throw
+    if (errorMessage.startsWith("BAD REQUEST")) {
+      res.status(400).json({
+        message: `Solicitud incorrecta: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("UNAUTHORIZED")) {
+      res.status(401).json({
+        message: `Error de autorización: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("FORBIDDEN")) {
+      res.status(403).json({
+        message: `Prohibido: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("NOT FOUND")) {
+      res.status(404).json({
+        message: `Recurso no encontrado: ${errorMessage}`,
+      });
+    } else if (errorMessage.startsWith("CONFLICT")) {
+      res.status(409).json({
+        message: `Conflicto: ${errorMessage}`,
+      });
+    } else {
+      res.status(500).json({
+        message: `Error interno del servidor: ${errorMessage}`,
+      });
+    }
   }
 };
 

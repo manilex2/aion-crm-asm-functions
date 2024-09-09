@@ -1,5 +1,16 @@
 {
   "projects": {
     "default": "aion-crm-asm"
-  }
+  },
+  "targets": {},
+  "etags": {
+    "aion-crm-asm": {
+      "extensionInstances": {
+        "firestore-algolia-search": "d3e4448099120709e87263b87b2d64a06e6827ec4f1eae407a09cc69638cafc7",
+        "firestore-algolia-search-8cqi": "1b0f34c26be7c4b20e1fc862236898da1add7e3e767ece5234bed559fd75f477",
+        "firestore-algolia-search-z8a3": "0b9d2b8d1a4297fe39212beb785f54cc31ef0db9f1deacdbba6e337ab3163d12"
+      }
+    }
+  },
+  "dataconnectEmulatorConfig": {}
 }

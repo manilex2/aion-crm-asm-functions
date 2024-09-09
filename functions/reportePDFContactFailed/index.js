@@ -97,13 +97,13 @@ const createPdf = async (req, res) => {
       expires: Date.now() + 60 * 60 * 1000,
     });
 
-    /* // Configurar la respuesta como un archivo PDF
+    // Configurar la respuesta como un archivo PDF
     res.setHeader("Content-Type", "application/json");
     // Enviar el PDF como respuesta
-    res.status(200).send({message: url}); */
+    res.status(200).send({message: url});
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.status(200).send(pdfBytes);
+    /* res.setHeader("Content-Type", "application/pdf");
+    res.status(200).send(pdfBytes); */
   } catch (error) {
     console.error("Error generando el PDF: ", error);
     res.setHeader("Content-Type", "application/json");

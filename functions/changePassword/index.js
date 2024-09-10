@@ -53,6 +53,27 @@ const changePassword = async (req, res) => {
   }
 };
 
-exports.cambiarClave = onRequest({
-  cors: [/aion-crml-asm\.flutterflow\.app$/, /app\.flutterflow\.io\/debug$/],
-}, changePassword);
+exports.cambiarClave = onRequest((req, res) => {
+  const allowedOrigins = [
+    "https://aion-crm.flutterflow.app",
+    "https://app.flutterflow.io/debug",
+  ];
+
+  const origin = req.headers.origin;
+
+  // Verifica si el origen de la solicitud está en la lista de orígenes
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // Manejo de solicitud preflight (OPTIONS)
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  // Aquí puedes seguir con tu lógica principal (createPdf)
+  changePassword(req, res);
+});

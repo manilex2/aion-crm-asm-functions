@@ -16,11 +16,15 @@ const {
   PDFPage,
 } = require("pdf-lib");
 const fontkit = require("@pdf-lib/fontkit");
-const serviceAccount = require("./serviceAccountKey.json");
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+if (process.env.NODE_ENV === "production") {
+  admin.initializeApp();
+} else {
+  const serviceAccount = require("./serviceAccountKey.json");
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
 setGlobalOptions({
   maxInstances: 10,
   timeoutSeconds: 540,
@@ -34,20 +38,25 @@ const fs = require("fs");
  * @param {Response} res Respuesta de la solicitud HTTP
  */
 const createPdf = async (req, res) => {
+  console.log(`Estamos en entorno: ${process.env.NODE_ENV}`);
   const db = getFirestore();
   try {
     // Obtener las fechas del body
     const {source, lastLeadStatus, logoUrl} = req.body;
 
-    if (!source || !lastLeadStatus || !logoUrl) {
+    if (!Array.isArray(lastLeadStatus) || lastLeadStatus.length === 0) {
+      throw new Error("BAD REQUEST: No se proporcionaron IDs válidos");
+    }
+
+    if (!source || !logoUrl) {
       // eslint-disable-next-line max-len
       throw new Error("BAD REQUEST: No se proporcionaron alguno de estos parámetros: source, lastLeadStatus y/o logoUrl");
     }
 
     const leadsContactFailData = (await db
         .collection("contactos")
-        .where("lastLeadStatus", "==", lastLeadStatus)
         .where("source", "==", source)
+        .where("lastLeadStatus", "in", lastLeadStatus)
         .get())
         .docs.map((leadContact) => {
           return leadContact.data();
@@ -61,14 +70,14 @@ const createPdf = async (req, res) => {
 
     const resultados = leadsContactFailData.map((row) => ({
       origen: source,
-      fecha: formatDate(row.registrationDate) || "",
-      nombre: row.names || "",
-      apellido: row.surnames || "",
-      correo: row.email || "",
-      telefono: row.phone || "",
-      ultimoSeguimiento: formatDate(row.lastUpdate) || "",
-      status: row.status || "",
-      comentarios: row.notes || "",
+      fecha: row.registrationDate? formatDate(row.registrationDate) : "",
+      nombre: row.names? row.names : "",
+      apellido: row.surnames? row.surnames : "",
+      correo: row.email? row.email : "",
+      telefono: row.phone? row.phone : "",
+      ultimoSeguimiento: row.lastUpdate? formatDate(row.lastUpdate) || "" : "",
+      status: row.status? row.status : "",
+      comentario: row.notes? row.notes : "",
     }));
 
     // Guardar el PDF en memoria
@@ -140,9 +149,30 @@ const createPdf = async (req, res) => {
   }
 };
 
-exports.reportePDFContactFailed = onRequest({
-  cors: [/aion-crml-asm\.flutterflow\.app$/, /app\.flutterflow\.io\/debug$/],
-}, createPdf);
+exports.reportePDFContactFailed = onRequest((req, res) => {
+  const allowedOrigins = [
+    "https://aion-crm.flutterflow.app",
+    "https://app.flutterflow.io/debug",
+  ];
+
+  const origin = req.headers.origin;
+
+  // Verifica si el origen de la solicitud está en la lista de orígenes
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // Manejo de solicitud preflight (OPTIONS)
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  // Aquí puedes seguir con tu lógica principal (createPdf)
+  createPdf(req, res);
+});
 
 /**
  *
@@ -209,7 +239,7 @@ function formatDate(date, JS) {
 async function generatePDF(data, logoUrl) {
   // Crear un nuevo documento PDF tamaño carta
   const pdfDoc = await PDFDocument.create();
-  let page = pdfDoc.addPage(PageSizes.Letter);
+  let page = pdfDoc.addPage([1000, 792]);
   const {width, height} = page.getSize();
 
   // eslint-disable-next-line max-len
@@ -256,17 +286,17 @@ async function generatePDF(data, logoUrl) {
   let yPosition = tableTop;
 
   const headers = [
+    {label: "Origen", key: "origen"},
     {label: "Fecha", key: "fecha"},
-    {label: "Descripción", key: "descripcion"},
-    {label: "Usuario", key: "nombre_usuario"},
-    {label: "Hora de inicio", key: "inicio"},
-    {label: "Hora de termino", key: "final"},
-    {label: "Horas trabajadas", key: "horasTrabajadas"},
-    {label: "Horas facturables", key: "horasFacturables"},
-    {label: "Tarifa por hora", key: "tarifaHora"},
-    {label: "Valor trabajo", key: "valorTrabajo"},
+    {label: "Nombre", key: "nombre"},
+    {label: "Apellido", key: "apellido"},
+    {label: "Correo", key: "email"},
+    {label: "Teléfono", key: "telefono"},
+    {label: "Último Seguimiento", key: "ultimoSeguimiento"},
+    {label: "Estado", key: "status"},
+    {label: "Comentario", key: "comentario"},
   ];
-  const columnWidths = [66, 115, 98, 41, 66, 66, 82, 82, 82];
+  const columnWidths = [120, 66, 80, 80, 140, 66, 100, 66, 200];
 
   headers.forEach((header, i) => {
     const xPosition = tableLeft + columnWidths
@@ -351,7 +381,7 @@ async function generatePDF(data, logoUrl) {
         page.drawText(line, {
           x: xPosition + 5,
           y: yPosition - (lineIndex * rowHeight) - 15,
-          size: fontSize,
+          size: header.label == "Comentario"? fontSize - 2 : fontSize,
           font: font,
           color: rgb(0, 0, 0),
         });

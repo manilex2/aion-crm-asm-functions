@@ -4,9 +4,9 @@ const {setGlobalOptions} = require("firebase-functions/v2");
 const admin = require("firebase-admin");
 const {
   getFirestore,
-  // eslint-disable-next-line no-unused-vars
-  Timestamp,
   FieldValue,
+  // eslint-disable-next-line no-unused-vars
+  DocumentData,
 } = require("firebase-admin/firestore");
 const {getStorage} = require("firebase-admin/storage");
 const {
@@ -17,11 +17,16 @@ const {
   PDFPage,
 } = require("pdf-lib");
 const fontkit = require("@pdf-lib/fontkit");
-const serviceAccount = require("./serviceAccountKey.json");
+const {DateTime} = require("luxon");
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+if (process.env.NODE_ENV === "production") {
+  admin.initializeApp();
+} else {
+  const serviceAccount = require("./serviceAccountKey.json");
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
 setGlobalOptions({
   maxInstances: 10,
   timeoutSeconds: 540,
@@ -35,6 +40,7 @@ const fs = require("fs");
  * @param {Response} res Respuesta de la solicitud HTTP
  */
 const createPdf = async (req, res) => {
+  console.log(`Estamos en entorno: ${process.env.NODE_ENV}`);
   const db = getFirestore();
   try {
     const {clienteId, landsQuoteId, planoUrl, logoUrl} = req.body;
@@ -53,359 +59,64 @@ const createPdf = async (req, res) => {
         .doc(landsQuoteId)
         .get()).data();
 
-    let firstExpiration;
-    const nowDate = formatDate(new Date(Date.now()), true);
+    const resultados = {
+      cliente: `${clientData.title || ""} ${clientData.name}`,
+      email: `${clientData.email || ""}`,
+      cedula: `${clientData.idNumber || ""}`,
+      solar: `${cotizacionData.solar || ""}`,
+      area: `${cotizacionData.landAreaM2?
+        cotizacionData.landAreaM2.toFixed(2) + "M2" : "" }`,
+      precio: `${cotizacionData.price?
+        "$" + cotizacionData.price.toFixed(2) : ""}`,
+      reserva: `${cotizacionData.booking?
+        "$" + cotizacionData.booking.toFixed(2) : ""}`,
+      entrada: {
+        value1: `${cotizacionData.entrancePercentage?
+          Math.round(cotizacionData.entrancePercentage) + "%" : ""}`,
+        value2: `${cotizacionData.entranceBooking?
+          "$" + cotizacionData.entranceBooking.toFixed(2) : ""}`,
+      },
+      cuotasMens: {
+        value1: `${cotizacionData.monthQuotasAmount || ""}`,
+        value2: `${cotizacionData.monthQuotasValue?
+          "$" + cotizacionData.monthQuotasValue.toFixed(2) : ""}`,
+      },
+      firstExpiration: `${cotizacionData.firstExpiration?
+        formatDate(cotizacionData.firstExpiration, false) : ""}`,
+      saldo: {
+        value1: `${cotizacionData.bankCreditBalancePercentage?
+          Math.round(cotizacionData.bankCreditBalancePercentage) + "%" : ""}`,
+        value2: `${cotizacionData.bankCreditBalanceValue?
+          "$" + cotizacionData.bankCreditBalanceValue.toFixed(2) : ""}`,
+      },
+      cuotasTotales: [],
+    };
 
-    if (cotizacionData.firstExpiration) {
-      firstExpiration = formatDate(
-          cotizacionData.firstExpiration, false,
-      );
+    // Obtenemos la fecha de la primera expiración utilizando luxon
+    const firstExpirationDate = DateTime
+        .fromJSDate(cotizacionData.firstExpiration.toDate());
+
+    // Recorremos la cantidad de cuotas mensuales
+    for (let i = 0; i < parseInt(cotizacionData.monthQuotasAmount); i++) {
+      // Calculamos la fecha de cada cuota sumando meses a la `firstExpiration`
+      const fechaCuota = firstExpirationDate
+          .plus({months: i}).toFormat("dd/MM/yyyy");
+
+      // Añadimos la cuota al array `cuotasTotales`
+      resultados.cuotasTotales.push({
+        numCuota: i + 1, // Incrementamos el número de la cuota
+        valor: "$" + cotizacionData.monthQuotasValue.toFixed(2),
+        fecha: fechaCuota, // Fecha de la cuota
+      });
     }
 
-    // Crear un nuevo documento PDF tamaño carta
-    const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage(PageSizes.Letter);
-    const {width, height} = page.getSize();
-
-    // eslint-disable-next-line max-len
-    // Cargar la imagen de la captura de pantalla (la imagen debe estar en una URL accesible públicamente)
-    const logoBytes = await fetch(logoUrl).then((res) => res.arrayBuffer());
-    const logoImage = await pdfDoc.embedPng(logoBytes);
-    const logoDims = logoImage.scale(0.5); // Escalar la imagen si es necesario
-
-    const image1Bytes = await fetch(planoUrl).then((res) => res.arrayBuffer());
-    const image1Image = await pdfDoc.embedJpg(image1Bytes);
-    const image1Dims = image1Image.scale(0.2);
-
-    const fontSize = 8;
-    const footerFontSize = 8;
-
-    // Dibujar el logo en la página
-    page.drawImage(logoImage, {
-      x: width / 3,
-      y: height - logoDims.height - 20,
-      width: logoDims.width * 2,
-      height: logoDims.height * 1.2,
-    });
-
-    // Dibujar la imagen 1 en la página
-    page.drawImage(image1Image, {
-      x: width / 1.85,
-      y: height - image1Dims.height - 200,
-      width: image1Dims.width * 1.2,
-      height: image1Dims.height * 1.8,
-    });
-
-    // Establecer las fuentes para el texto
-    pdfDoc.registerFontkit(fontkit);
-    const font = await pdfDoc.embedFont(
-        fs.readFileSync("./montserrat 2/Montserrat-Regular.otf"),
-    );
-    const fontBold = await pdfDoc.embedFont(
-        fs.readFileSync("./montserrat 2/Montserrat-Bold.otf"),
-    );
-
-    // Título
-    page.drawText("COTIZACION DE TERRENO", {
-      x: 75,
-      y: height - 80,
-      size: fontSize + 2,
-      font: fontBold,
-      color: rgb(0.004, 0, 0.329),
-    });
-    let xFields = 20;
-    let yFields = height - 110;
-
-    // Campos de texto
-    const fields = [
-      {
-        label: "Cliente:",
-        value: `${clientData.title || ""} ${clientData.name || ""}`,
-        x: xFields,
-        y: yFields,
-      }, {
-        label: "Correo:",
-        value: clientData.email || "",
-        x: xFields,
-        y: yFields,
-      }, {
-        label: "Cédula:",
-        value: clientData.idNumber || "",
-        x: xFields,
-        y: yFields,
-      }, {
-        label: "Solar:",
-        value: `${cotizacionData.solar}` || "",
-        x: xFields,
-        y: yFields,
-      }, {
-        label: "Área de Terreno (M2):",
-        value: `${cotizacionData.landAreaM2} m2` || "",
-        x: xFields,
-        y: yFields,
-      }, {
-        label: "Precio:",
-        value: `${cotizacionData.price?
-          "$" + cotizacionData.price.toFixed(2) :
-          ""}`,
-        x: xFields,
-        y: yFields,
-      }, {
-        label: "Reserva:",
-        value: `${cotizacionData.booking?
-          "$" + cotizacionData.booking.toFixed(2) :
-          ""}`,
-        x: xFields,
-        y: yFields,
-      }, {
-        label: "ENTRADA - RESERVA:",
-        value: `${cotizacionData.entrancePercentage}%` || "",
-        x: xFields,
-        y: yFields,
-        value2: `${cotizacionData.entranceBooking?
-          "$" + cotizacionData.entranceBooking.toFixed(2) :
-          ""}`,
-      }, {
-        label: "Cuotas mensuales:",
-        value: `${cotizacionData.monthQuotasAmount}` || "",
-        x: xFields,
-        y: yFields,
-        value2: `${cotizacionData.monthQuotasValue?
-          "$" + cotizacionData.monthQuotasValue.toFixed(2) :
-          ""}`,
-      }, {
-        label: "Primer Vencimiento:",
-        value: firstExpiration || "",
-        x: xFields,
-        y: yFields,
-      }, {
-        label: "Saldo CRÉDITO BANCARIO:",
-        value: `${cotizacionData.bankCreditBalancePercentage}%`,
-        x: xFields,
-        y: yFields,
-        value2: `${cotizacionData.bankCreditBalanceValue?
-          "$" + cotizacionData.bankCreditBalanceValue.toFixed(2) :
-          ""}`,
-      }, {
-        label: "Cuotas:",
-        value: `${cotizacionData.quotas}` || "",
-        x: xFields,
-        y: yFields,
-      }, {
-        label: "Fecha:",
-        value: nowDate,
-        x: xFields,
-        y: yFields,
-      },
-    ];
-
-    const rowHeight = 20;
-
-    // Dibujar los campos de texto
-    fields.forEach((field) => {
-      page.drawText(field.label, {
-        x: field.x,
-        y: yFields,
-        size: field.label == "Saldo CRÉDITO BANCARIO:" ?
-        fontSize - 1 :
-        fontSize,
-        font: fontBold,
-        color: rgb(0, 0, 0),
-      });
-
-      if (field.value2) {
-        page.drawRectangle({
-          x: field.x + 100,
-          y: yFields - 5,
-          width: 50,
-          height: rowHeight,
-          borderColor: rgb(0.635, 0.635, 0.635),
-          borderWidth: 1,
-        });
-
-        page.drawRectangle({
-          x: field.x + 160,
-          y: yFields - 5,
-          width: 140,
-          height: rowHeight,
-          borderColor: rgb(0.635, 0.635, 0.635),
-          borderWidth: 1,
-        });
-
-        page.drawText(field.value, {
-          x: field.x + 110,
-          y: yFields,
-          size: fontSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
-
-        page.drawText(field.value2, {
-          x: field.x + 170,
-          y: yFields,
-          size: fontSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
-
-        yFields = yFields - 30;
-
-        return;
-      }
-
-      page.drawRectangle({
-        x: field.x + 100,
-        y: yFields - 5,
-        width: 200,
-        height: rowHeight,
-        borderColor: rgb(0.635, 0.635, 0.635),
-        borderWidth: 1,
-      });
-
-      page.drawText(field.value, {
-        x: field.x + 110,
-        y: yFields,
-        size: fontSize,
-        font,
-        color: rgb(0, 0, 0),
-      });
-
-      yFields = yFields - 30;
-    });
-
-    page.drawRectangle({
-      x: xFields,
-      y: yFields - 90,
-      width: 140,
-      height: 100,
-      borderWidth: 2,
-      borderColor: rgb(0.635, 0.635, 0.635),
-      color: rgb(1, 1, 1),
-      opacity: 0.5,
-      borderOpacity: 0.75,
-    });
-
-    page.drawText("Firma Autorizada:", {
-      x: xFields + 35,
-      y: yFields - 10,
-      font: fontBold,
-      size: fontSize,
-      color: rgb(0, 0, 0),
-    });
-
-    page.drawLine({
-      start: {x: xFields + 25, y: yFields - 60},
-      end: {x: xFields + 120, y: yFields - 60},
-      thickness: 2,
-      color: rgb(0.004, 0, 0.329),
-      opacity: 0.75,
-    });
-
-    page.drawText("URB VISTALMAR", {
-      x: xFields + 40,
-      y: yFields - 75,
-      font,
-      size: fontSize,
-      color: rgb(0, 0, 0),
-    });
-
-    xFields = xFields + 160;
-
-    page.drawRectangle({
-      x: xFields,
-      y: yFields - 90,
-      width: 140,
-      height: 100,
-      borderWidth: 2,
-      borderColor: rgb(0.635, 0.635, 0.635),
-      color: rgb(1, 1, 1),
-      opacity: 0.5,
-      borderOpacity: 0.75,
-    });
-
-    page.drawText("Cliente:", {
-      x: xFields + 55,
-      y: yFields - 10,
-      font: fontBold,
-      size: fontSize,
-      color: rgb(0, 0, 0),
-    });
-
-    page.drawLine({
-      start: {x: xFields + 25, y: yFields - 60},
-      end: {x: xFields + 120, y: yFields - 60},
-      thickness: 2,
-      color: rgb(0.004, 0, 0.329),
-      opacity: 0.75,
-    });
-
-    page.drawText(fields[0].value, {
-      x: xFields + 40,
-      y: yFields - 75,
-      font,
-      size: fontSize,
-      color: rgb(0, 0, 0),
-    });
-
-    yFields -= 75;
-
-    xFields = 20;
-
-    page.drawText("IMPORTANTE:", {
-      x: xFields,
-      y: yFields - 30,
-      font: fontBold,
-      size: fontSize + 2,
-      color: rgb(0, 0, 0),
-    });
-
-    page.drawLine({
-      start: {x: xFields, y: yFields - 31},
-      end: {x: xFields + 70, y: yFields - 31},
-      thickness: 1,
-      color: rgb(0, 0, 0),
-    });
-
-    // eslint-disable-next-line max-len
-    page.drawText("* Acercarse a firmar su contrato en un plazo máximo de 7 días, contados desde", {
-      x: xFields,
-      y: yFields - 50,
-      font,
-      size: fontSize + 2,
-      color: rgb(0, 0, 0),
-    });
-
-    page.drawText("la presente fecha.", {
-      x: xFields,
-      y: yFields - 60,
-      font,
-      size: fontSize + 2,
-      color: rgb(0, 0, 0),
-    });
-
-    // eslint-disable-next-line max-len
-    page.drawText("* El o los abajo firmantes, autorizamos a solicitar y obtener mi información crediticia", {
-      x: xFields,
-      y: yFields - 80,
-      font,
-      size: fontSize + 2,
-      color: rgb(0, 0, 0),
-    });
-
-    page.drawText("en Buró de Créditos y Central de Riesgo.", {
-      x: xFields,
-      y: yFields - 90,
-      font,
-      size: fontSize + 2,
-      color: rgb(0, 0, 0),
-    });
-
-    pdfDoc.getPages().forEach((p, _) => {
-      // eslint-disable-next-line max-len
-      drawFooter(p, fontBold, footerFontSize, width); // Dibujar solo el pie de página común
-    });
-    // Guardar el PDF en memoria
-    const pdfBytes = Buffer.from(await pdfDoc.save());
+    // Llamar a la función que genera el PDF
+    const pdfBytes = Buffer
+        .from(await generatePDF(
+            resultados,
+            logoUrl,
+            planoUrl,
+        ));
 
     const storage = getStorage().bucket("aion-crm-asm.appspot.com");
 
@@ -438,19 +149,16 @@ const createPdf = async (req, res) => {
 
     /* // Configurar la respuesta como un archivo PDF
     res.setHeader("Content-Type", "application/pdf");
-    // eslint-disable-next-line max-len
     res.setHeader(
         "Content-Disposition",
         "attachment; filename=cotizacion_terreno.pdf",
-    ); */
+    );
+
+    res.status(200).send(pdfBytes); */
 
     // Configurar la respuesta como un archivo PDF
     res.setHeader("Content-Type", "application/json");
-    // Enviar el PDF como respuesta
     res.status(200).send({message: url});
-
-    /* res.setHeader("Content-Type", "application/json");
-    res.status(200).send({message: url}); */
   } catch (error) {
     console.error("Error generando el PDF: ", error);
     res.setHeader("Content-Type", "application/json");
@@ -487,9 +195,30 @@ const createPdf = async (req, res) => {
   }
 };
 
-exports.reportePDFCotTerreno = onRequest({
-  cors: [/aion-crml-asm\.flutterflow\.app$/, /app\.flutterflow\.io\/debug$/],
-}, createPdf);
+exports.reportePDFCotTerreno = onRequest((req, res) => {
+  const allowedOrigins = [
+    "https://aion-crm.flutterflow.app",
+    "https://app.flutterflow.io/debug",
+  ];
+
+  const origin = req.headers.origin;
+
+  // Verifica si el origen de la solicitud está en la lista de orígenes
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // Manejo de solicitud preflight (OPTIONS)
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  // Aquí puedes seguir con tu lógica principal (createPdf)
+  createPdf(req, res);
+});
 
 /**
  *
@@ -543,4 +272,395 @@ function formatDate(date, JS) {
 
   // Formatear la fecha como d/m/y
   return `${day}/${month}/${year}`;
+}
+
+/**
+ *
+ * @param {object} resultados Datos para la generación del PDF
+ * @param {string} logoUrl Logo de la empresa que genera el pdf
+ * @param {string} planoUrl Imágen del plano de la cotización
+ * @return {Promise<Uint8Array>} Uint8Array con el pdf generado
+ */
+async function generatePDF(resultados, logoUrl, planoUrl) {
+  // Crear un nuevo documento PDF tamaño carta
+  const pdfDoc = await PDFDocument.create();
+  let page = pdfDoc.addPage(PageSizes.Letter);
+  const {width, height} = page.getSize();
+
+  // eslint-disable-next-line max-len
+  // Cargar la imagen de la captura de pantalla (la imagen debe estar en una URL accesible públicamente)
+  const logoBytes = await fetch(logoUrl).then((res) => res.arrayBuffer());
+  const logoImage = await pdfDoc.embedPng(logoBytes);
+  const logoDims = logoImage.scale(0.5); // Escalar la imagen si es necesario
+
+  const image1Bytes = await fetch(planoUrl).then((res) => res.arrayBuffer());
+  const image1Image = await pdfDoc.embedJpg(image1Bytes);
+  const image1Dims = image1Image.scale(0.2);
+
+  const marginTop = 50;
+  const marginBottom = 50; // Margen inferior para el contenido antes del footer
+  const footerHeight = 60; // Altura reservada para el footer
+  const fontSize = 8;
+  const footerFontSize = 8;
+
+  // Dibujar el logo en la página
+  page.drawImage(logoImage, {
+    x: width / 3,
+    y: height - logoDims.height - 20,
+    width: logoDims.width * 2,
+    height: logoDims.height * 1.2,
+  });
+
+  // Dibujar la imagen 1 en la página
+  page.drawImage(image1Image, {
+    x: width / 1.85,
+    y: height - image1Dims.height - 200,
+    width: image1Dims.width * 1.2,
+    height: image1Dims.height * 1.8,
+  });
+
+  // Establecer las fuentes para el texto
+  pdfDoc.registerFontkit(fontkit);
+  const font = await pdfDoc.embedFont(
+      fs.readFileSync("./montserrat 2/Montserrat-Regular.otf"),
+  );
+  const fontBold = await pdfDoc.embedFont(
+      fs.readFileSync("./montserrat 2/Montserrat-Bold.otf"),
+  );
+
+  // Título
+  page.drawText("COTIZACION DE TERRENO", {
+    x: 75,
+    y: height - 80,
+    size: fontSize + 2,
+    font: fontBold,
+    color: rgb(0.004, 0, 0.329),
+  });
+  let xFields = 20;
+  let yFields = height - 110;
+
+  // Campos de texto
+  const fields = [
+    {label: "Cliente:", key: "cliente"},
+    {label: "Correo:", key: "email"},
+    {label: "Cédula:", key: "cedula"},
+    {label: "Solar:", key: "solar"},
+    {label: "Área de Terreno (M2):", key: "area"},
+    {label: "Precio:", key: "precio"},
+    {label: "Reserva:", key: "reserva"},
+    {label: "ENTRADA - RESERVA:", key: "entrada"},
+    {label: "Cuotas mensuales:", key: "cuotasMens"},
+    {label: "Primer Vencimiento:", key: "firstExpiration"},
+    {label: "Saldo CRÉDITO BANCARIO:", key: "saldo"},
+  ];
+
+  const rowHeight = 20;
+
+  // Dibujar los campos de texto
+  fields.forEach((field) => {
+    page.drawText(field.label, {
+      x: xFields,
+      y: yFields,
+      size: field.label == "Saldo CRÉDITO BANCARIO:" ?
+        fontSize - 1 :
+        fontSize,
+      font: fontBold,
+      color: rgb(0, 0, 0),
+    });
+
+    if (resultados[field.key].value2) {
+      page.drawRectangle({
+        x: xFields + 100,
+        y: yFields - 5,
+        width: 50,
+        height: rowHeight,
+        borderColor: rgb(0.635, 0.635, 0.635),
+        borderWidth: 1,
+      });
+
+      page.drawRectangle({
+        x: xFields + 160,
+        y: yFields - 5,
+        width: 140,
+        height: rowHeight,
+        borderColor: rgb(0.635, 0.635, 0.635),
+        borderWidth: 1,
+      });
+
+      page.drawText(resultados[field.key].value1, {
+        x: xFields + 110,
+        y: yFields,
+        size: fontSize,
+        font,
+        color: rgb(0, 0, 0),
+      });
+
+      page.drawText(resultados[field.key].value2, {
+        x: xFields + 170,
+        y: yFields,
+        size: fontSize,
+        font,
+        color: rgb(0, 0, 0),
+      });
+
+      yFields -= 30;
+
+      return;
+    }
+
+    page.drawRectangle({
+      x: xFields + 100,
+      y: yFields - 5,
+      width: 200,
+      height: rowHeight,
+      borderColor: rgb(0.635, 0.635, 0.635),
+      borderWidth: 1,
+    });
+
+    page.drawText(resultados[field.key], {
+      x: xFields + 110,
+      y: yFields,
+      size: fontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    yFields -= 30;
+  });
+
+  resultados.cuotasTotales.forEach((cuota) => {
+    if (yFields - rowHeight < footerHeight + marginBottom) {
+      page = pdfDoc.addPage(PageSizes.Letter);
+      yFields = height - marginTop; // Reiniciar la posición Y
+    }
+
+    page.drawText("Cuota:", {
+      x: xFields,
+      y: yFields,
+      size: fontSize,
+      font: fontBold,
+      color: rgb(0, 0, 0),
+    });
+
+    page.drawRectangle({
+      x: xFields + 100,
+      y: yFields - 5,
+      width: 30,
+      height: rowHeight,
+      borderColor: rgb(0.635, 0.635, 0.635),
+      borderWidth: 1,
+    });
+
+    page.drawRectangle({
+      x: xFields + 130,
+      y: yFields - 5,
+      width: 90,
+      height: rowHeight,
+      borderColor: rgb(0.635, 0.635, 0.635),
+      borderWidth: 1,
+    });
+
+    page.drawRectangle({
+      x: xFields + 220,
+      y: yFields - 5,
+      width: 80,
+      height: rowHeight,
+      borderColor: rgb(0.635, 0.635, 0.635),
+      borderWidth: 1,
+    });
+
+    page.drawText(`${cuota.numCuota}`, {
+      x: xFields + 110,
+      y: yFields,
+      size: fontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    page.drawText(cuota.fecha, {
+      x: xFields + 135,
+      y: yFields,
+      size: fontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    page.drawText(cuota.valor, {
+      x: xFields + 230,
+      y: yFields,
+      size: fontSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    yFields -= 20;
+  });
+
+  if (yFields - rowHeight < footerHeight + marginBottom) {
+    page = pdfDoc.addPage(PageSizes.Letter);
+    yFields = height - marginTop; // Reiniciar la posición Y
+  }
+
+  yFields -= 90;
+
+  page.drawRectangle({
+    x: xFields,
+    y: yFields,
+    width: 140,
+    height: 100,
+    borderWidth: 2,
+    borderColor: rgb(0.635, 0.635, 0.635),
+    color: rgb(1, 1, 1),
+    opacity: 0.5,
+    borderOpacity: 0.75,
+  });
+
+  page.drawText("Firma Autorizada:", {
+    x: xFields + 35,
+    y: yFields + 90,
+    font: fontBold,
+    size: fontSize,
+    color: rgb(0, 0, 0),
+  });
+
+  page.drawLine({
+    start: {x: xFields + 25, y: yFields + 30},
+    end: {x: xFields + 120, y: yFields + 30},
+    thickness: 2,
+    color: rgb(0.004, 0, 0.329),
+    opacity: 0.75,
+  });
+
+  page.drawText("URB VISTALMAR", {
+    x: xFields + 40,
+    y: yFields + 20,
+    font,
+    size: fontSize,
+    color: rgb(0, 0, 0),
+  });
+
+  xFields = xFields + 160;
+
+  page.drawRectangle({
+    x: xFields,
+    y: yFields,
+    width: 140,
+    height: 100,
+    borderWidth: 2,
+    borderColor: rgb(0.635, 0.635, 0.635),
+    color: rgb(1, 1, 1),
+    opacity: 0.5,
+    borderOpacity: 0.75,
+  });
+
+  page.drawText("Cliente:", {
+    x: xFields + 55,
+    y: yFields + 90,
+    font: fontBold,
+    size: fontSize,
+    color: rgb(0, 0, 0),
+  });
+
+  page.drawLine({
+    start: {x: xFields + 25, y: yFields + 30},
+    end: {x: xFields + 120, y: yFields + 30},
+    thickness: 2,
+    color: rgb(0.004, 0, 0.329),
+    opacity: 0.75,
+  });
+
+  page.drawText(resultados[fields[0].key], {
+    x: xFields + 30,
+    y: yFields + 20,
+    font,
+    size: fontSize,
+    color: rgb(0, 0, 0),
+  });
+
+  yFields -= 10;
+
+  xFields = 20;
+
+  if (yFields - rowHeight < footerHeight + marginBottom) {
+    page = pdfDoc.addPage(PageSizes.Letter);
+    yFields = height - marginTop; // Reiniciar la posición Y
+  }
+
+  page.drawText("IMPORTANTE:", {
+    x: xFields,
+    y: yFields - 30,
+    font: fontBold,
+    size: fontSize + 2,
+    color: rgb(0, 0, 0),
+  });
+
+  page.drawLine({
+    start: {x: xFields, y: yFields - 31},
+    end: {x: xFields + 70, y: yFields - 31},
+    thickness: 1,
+    color: rgb(0, 0, 0),
+  });
+
+  yFields -= 50;
+
+  if (yFields - rowHeight < footerHeight + marginBottom) {
+    page = pdfDoc.addPage(PageSizes.Letter);
+    yFields = height - marginTop; // Reiniciar la posición Y
+  }
+
+  // eslint-disable-next-line max-len
+  page.drawText("* Acercarse a firmar su contrato en un plazo máximo de 7 días, contados desde", {
+    x: xFields,
+    y: yFields,
+    font,
+    size: fontSize + 2,
+    color: rgb(0, 0, 0),
+  });
+
+  if (yFields - rowHeight < footerHeight + marginBottom) {
+    page = pdfDoc.addPage(PageSizes.Letter);
+    yFields = height - marginTop; // Reiniciar la posición Y
+  }
+
+  page.drawText("la presente fecha.", {
+    x: xFields,
+    y: yFields - 10,
+    font,
+    size: fontSize + 2,
+    color: rgb(0, 0, 0),
+  });
+
+  if (yFields - rowHeight < footerHeight + marginBottom) {
+    page = pdfDoc.addPage(PageSizes.Letter);
+    yFields = height - marginTop; // Reiniciar la posición Y
+  }
+
+  // eslint-disable-next-line max-len
+  page.drawText("* El o los abajo firmantes, autorizamos a solicitar y obtener mi información crediticia", {
+    x: xFields,
+    y: yFields - 30,
+    font,
+    size: fontSize + 2,
+    color: rgb(0, 0, 0),
+  });
+
+  if (yFields - rowHeight < footerHeight + marginBottom) {
+    page = pdfDoc.addPage(PageSizes.Letter);
+    yFields = height - marginTop; // Reiniciar la posición Y
+  }
+
+  page.drawText("en Buró de Créditos y Central de Riesgo.", {
+    x: xFields,
+    y: yFields - 40,
+    font,
+    size: fontSize + 2,
+    color: rgb(0, 0, 0),
+  });
+
+  pdfDoc.getPages().forEach((p, _) => {
+    // eslint-disable-next-line max-len
+    drawFooter(p, fontBold, footerFontSize, width); // Dibujar solo el pie de página común
+  });
+  // Guardar el PDF en memoria
+  return await pdfDoc.save();
 }

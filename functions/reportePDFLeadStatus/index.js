@@ -16,11 +16,14 @@ const {
   PDFPage,
 } = require("pdf-lib");
 const fontkit = require("@pdf-lib/fontkit");
-const serviceAccount = require("./serviceAccountKey.json");
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+if (process.env.NODE_ENV === "production") {
+  admin.initializeApp();
+} else {
+  const serviceAccount = require("./serviceAccountKey.json");
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
 setGlobalOptions({
   maxInstances: 10,
   timeoutSeconds: 540,
@@ -34,6 +37,7 @@ const fs = require("fs");
  * @param {Response} res Respuesta de la solicitud HTTP
  */
 const createPdf = async (req, res) => {
+  console.log(`Estamos en entorno: ${process.env.NODE_ENV}`);
   const db = getFirestore();
   try {
     // Obtener las fechas del body
@@ -157,9 +161,30 @@ const createPdf = async (req, res) => {
   }
 };
 
-exports.reportePDFLeadStatus = onRequest({
-  cors: [/aion-crml-asm\.flutterflow\.app$/, /app\.flutterflow\.io\/debug$/],
-}, createPdf);
+exports.reportePDFLeadStatus = onRequest((req, res) => {
+  const allowedOrigins = [
+    "https://aion-crm.flutterflow.app",
+    "https://app.flutterflow.io/debug",
+  ];
+
+  const origin = req.headers.origin;
+
+  // Verifica si el origen de la solicitud está en la lista de orígenes
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // Manejo de solicitud preflight (OPTIONS)
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  // Aquí puedes seguir con tu lógica principal (createPdf)
+  createPdf(req, res);
+});
 
 /**
  *

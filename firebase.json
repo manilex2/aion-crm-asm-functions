@@ -50,7 +50,8 @@
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
-        "*.local"
+        "*.local",
+        "serviceAccountKey.json"
       ],
       "predeploy": [
         "npm --prefix \"$RESOURCE_DIR\" run lint"
@@ -64,7 +65,8 @@
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
-        "*.local"
+        "*.local",
+        "serviceAccountKey.json"
       ],
       "predeploy": [
         "npm --prefix \"$RESOURCE_DIR\" run lint"
@@ -73,6 +75,21 @@
     {
       "source": "functions/reportePDFContactFailed",
       "codebase": "reporte-pdf-contact-failed",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local",
+        "serviceAccountKey.json"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run lint"
+      ]
+    },
+    {
+      "source": "functions/obtenerDocumentsContifico",
+      "codebase": "obtener-documents-contifico",
       "ignore": [
         "node_modules",
         ".git",

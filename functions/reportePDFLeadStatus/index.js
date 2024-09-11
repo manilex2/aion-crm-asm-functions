@@ -102,7 +102,7 @@ const createPdf = async (req, res) => {
     const storage = getStorage().bucket("aion-crm-asm.appspot.com");
 
     // eslint-disable-next-line max-len
-    const destination = `pdfs/Leads-inicio-${start}-final-${end}-${new Date(Date.now())}.pdf`;
+    const destination = `pdfs/leads/inicio-${start.getDate() + "-" + start.getMonth() + 1 + "-" + start.getFullYear()}-final-${end.getDate() + "-" + end.getMonth() + 1 + "-" + end.getFullYear()}-${new Date(Date.now())}.pdf`;
 
     // Subir el archivo al bucket
     const file = storage.file(destination);

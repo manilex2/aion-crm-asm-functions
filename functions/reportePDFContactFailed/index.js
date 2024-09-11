@@ -11,11 +11,12 @@ const {getStorage} = require("firebase-admin/storage");
 const {
   PDFDocument,
   rgb,
-  PageSizes,
   // eslint-disable-next-line no-unused-vars
   PDFPage,
 } = require("pdf-lib");
 const fontkit = require("@pdf-lib/fontkit");
+const {DateTime} = require("luxon");
+
 
 if (process.env.NODE_ENV === "production") {
   admin.initializeApp();
@@ -45,71 +46,146 @@ const createPdf = async (req, res) => {
     const {source, lastLeadStatus, logoUrl} = req.body;
 
     if (!Array.isArray(lastLeadStatus) || lastLeadStatus.length === 0) {
-      throw new Error("BAD REQUEST: No se proporcionaron IDs válidos");
+      throw new Error("BAD REQUEST: No se proporcionaron datos lastLeadStatus");
     }
 
-    if (!source || !logoUrl) {
-      // eslint-disable-next-line max-len
-      throw new Error("BAD REQUEST: No se proporcionaron alguno de estos parámetros: source, lastLeadStatus y/o logoUrl");
+    if (!Array.isArray(source) || source.length === 0) {
+      throw new Error("BAD REQUEST: No se proporcionaron datos source");
     }
 
-    const leadsContactFailData = (await db
-        .collection("contactos")
-        .where("source", "==", source)
-        .where("lastLeadStatus", "in", lastLeadStatus)
-        .get())
-        .docs.map((leadContact) => {
-          return leadContact.data();
-        });
+    if (!logoUrl) {
+      throw new Error("BAD REQUEST: No se proporcionó el logoUrl");
+    }
 
+    const leadsContactFailData = [];
+    let limitReached = false;
+
+    // Definir la zona horaria
+    const timeZone = "America/Guayaquil"; // Cambia esto por tu zona horaria
+
+    // Función para obtener el próximo viernes, sábado, domingo, lunes
+    const getNextDayOfWeek = (dayOfWeek) => {
+      const now = DateTime.now()
+          .setZone(timeZone)
+          .set({hour: 0, minute: 0, second: 0, millisecond: 0});
+      let daysToAdd = dayOfWeek - now.weekday;
+
+      if (daysToAdd <= 0) {
+        daysToAdd += 7; // Si el día ya pasó esta semana, suma 7 días
+      }
+
+      return now.plus({days: daysToAdd});
+    };
+
+    // Obtener las fechas de viernes, sábado, domingo y lunes siguientes
+    const dates = [
+      getNextDayOfWeek(5), // Viernes
+      getNextDayOfWeek(6), // Sábado
+      getNextDayOfWeek(7), // Domingo
+      getNextDayOfWeek(1), // Lunes
+    ];
+
+    // Iterar sobre cada source y luego sobre cada lastLeadStatus
+    for (const src of source) {
+      if (limitReached) break;
+
+      for (const statusId of lastLeadStatus) {
+        if (limitReached) break;
+
+        const querySnapshot = await db
+            .collection("contactos")
+            .where("source", "==", src)
+            .where("lastLeadStatus", "==", statusId)
+            .limit(400 - leadsContactFailData.length)
+            .get();
+
+        const leads = querySnapshot.docs.map((leadContact) => ({
+          docReference: leadContact.ref,
+          data: leadContact.data(),
+        }));
+        leadsContactFailData.push(...leads);
+
+        // Verificar si hemos alcanzado los 400 documentos
+        if (leadsContactFailData.length >= 400) {
+          limitReached = true;
+          break;
+        }
+      }
+    }
 
     if (leadsContactFailData.length < 1) {
       // eslint-disable-next-line max-len
       throw new Error("NOT FOUND: No se encontraron documentos para los filtros especificados.");
     }
 
-    const resultados = leadsContactFailData.map((row) => ({
-      origen: source,
-      fecha: row.registrationDate? formatDate(row.registrationDate) : "",
-      nombre: row.names? row.names : "",
-      apellido: row.surnames? row.surnames : "",
-      correo: row.email? row.email : "",
-      telefono: row.phone? row.phone : "",
-      ultimoSeguimiento: row.lastUpdate? formatDate(row.lastUpdate) || "" : "",
-      status: row.status? row.status : "",
-      comentario: row.notes? row.notes : "",
-    }));
-
-    // Guardar el PDF en memoria
-    const pdfBytes = Buffer
-        .from(await generatePDF(resultados, logoUrl));
+    // Agrupar los resultados en grupos de 100
+    const groupedResults = [];
+    while (leadsContactFailData.length > 0) {
+      groupedResults.push(leadsContactFailData.splice(0, 100));
+    }
 
     const storage = getStorage().bucket("aion-crm-asm.appspot.com");
+    const pdfDocIds = [];
 
-    // eslint-disable-next-line max-len
-    const destination = `pdfs/Leads-no-contactados-${new Date(Date.now())}.pdf`;
+    for (const [index, group] of groupedResults.entries()) {
+      const resultados = group.map((row) => ({
+        origen: row.data.source || "",
+        fecha: row.data.registrationDate ?
+          formatDate(row.data.registrationDate) : "",
+        nombre: row.data.names ? row.data.names : "",
+        apellido: row.data.surnames ? row.data.surnames : "",
+        correo: row.data.email ? row.data.email : "",
+        telefono: row.data.phone ? row.data.phone : "",
+        ultimoSeguimiento: row.data.lastUpdate ?
+          formatDate(row.data.lastUpdate) || "" : "",
+        status: row.data.lastLeadStatus ? row.data.lastLeadStatus : "",
+        comentario: row.data.notes ? row.data.notes : "",
+      }));
 
-    // Subir el archivo al bucket
-    const file = storage.file(destination);
-    await file.save(pdfBytes, {
-      metadata: {
-        contentType: "application/pdf", // Especificar que es un archivo PDF
-        cacheControl: "public, max-age=31536000",
-      },
-    });
+      // Generar el PDF para este grupo
+      const pdfBytes = Buffer.from(await generatePDF(resultados, logoUrl));
 
-    console.log(`El PDF ha sido subido a ${destination}`);
+      // Obtener fecha correspondiente al PDF (viernes, sábado, domingo, lunes)
+      const pdfDate = dates[index % 4]; // Ciclar las fechas entre los días
+      const formattedDate = pdfDate.toFormat("dd-MM-yyyy");
 
-    // Obtener URL pública del archivo subido
-    const [url] = await file.getSignedUrl({
-      action: "read",
-      expires: Date.now() + 60 * 60 * 1000,
-    });
+      // eslint-disable-next-line max-len
+      const destination = `pdfs/will-contact/seguimiento-${source}-${formattedDate}.pdf`;
+
+      // Subir el archivo al bucket
+      const file = storage.file(destination);
+      await file.save(pdfBytes, {
+        metadata: {
+          contentType: "application/pdf", // Especificar que es un archivo PDF
+          cacheControl: "public, max-age=31536000",
+        },
+      });
+
+      console.log(`El PDF grupo ${index + 1} ha sido subido a ${destination}`);
+
+      // Obtener URL pública del archivo subido
+      const [url] = await file.getSignedUrl({
+        action: "read",
+        expires: Date.now() + 60 * 60 * 1000,
+      });
+
+      // Guardar en la colección pdfProspectos en Firestore y obtener el ID
+      const docRef = await db.collection("pdfSeguimientos").add({
+        url: url,
+        fecha: pdfDate.toJSDate(), // Guardar como objeto Date
+        contactos: group.map((row) => row.docReference),
+      });
+
+      // Añadir el ID del documento a la lista
+      pdfDocIds.push(docRef.id);
+    }
 
     // Configurar la respuesta como un archivo PDF
     res.setHeader("Content-Type", "application/json");
     // Enviar el PDF como respuesta
-    res.status(200).send({message: url});
+    res
+        .status(200)
+        .send({message: pdfDocIds});
 
     /* res.setHeader("Content-Type", "application/pdf");
     res.status(200).send(pdfBytes); */
@@ -176,35 +252,6 @@ exports.reportePDFContactFailed = onRequest((req, res) => {
 
 /**
  *
- * @param {PDFPage} currentPage Pagina actual
- * @param {string} font Fuente del footer
- * @param {number} footerSize Tamaño de la fuente del footer
- * @param {number} width Ancho para el footer
- */
-/* function drawFooter(currentPage, font, footerSize, width) {
-  const footerText = `
-    CC. Río Plaza Piso 1 - Oficina 1 - Km 1 Vía a Samborondón
-    Samborondón
-    Celular Oficina Matriz: 0968265924`;
-
-  const footerLines = footerText.trim().split("\n");
-  let footerYPosition = 50;
-
-  footerLines.forEach((line) => {
-    const textWidth = font.widthOfTextAtSize(line.trim(), footerSize);
-    const xPosition = (width - textWidth) / 2; // Cálculo para centrar el texto
-    currentPage.drawText(line.trim(), {
-      x: xPosition,
-      y: footerYPosition,
-      size: footerSize,
-      font: font,
-      color: rgb(0, 0, 0),
-    });
-    footerYPosition -= footerSize + 2; // Espaciado entre líneas
-  });
-} */
-/**
- *
  * @param {Timestamp | Date} date Fecha a formatear.
  * @param {boolean} JS True si es fecha JavaScript
  * @return {string} Fecha formateada d/m/y.
@@ -239,7 +286,7 @@ function formatDate(date, JS) {
 async function generatePDF(data, logoUrl) {
   // Crear un nuevo documento PDF tamaño carta
   const pdfDoc = await PDFDocument.create();
-  let page = pdfDoc.addPage([1000, 792]);
+  let page = pdfDoc.addPage([1280, 792]);
   const {width, height} = page.getSize();
 
   // eslint-disable-next-line max-len
@@ -271,7 +318,7 @@ async function generatePDF(data, logoUrl) {
   );
   // Título
   // Título: "REPORTE DE LEADS"
-  page.drawText("REPORTE DE LEADS NO CONTACTADOS", {
+  page.drawText("REPORTE DE PROSPECTOS", {
     x: 35,
     y: height - 130,
     size: fontSize,
@@ -296,7 +343,7 @@ async function generatePDF(data, logoUrl) {
     {label: "Estado", key: "status"},
     {label: "Comentario", key: "comentario"},
   ];
-  const columnWidths = [120, 66, 80, 80, 140, 66, 100, 66, 200];
+  const columnWidths = [90, 66, 100, 100, 150, 66, 100, 180, 340];
 
   headers.forEach((header, i) => {
     const xPosition = tableLeft + columnWidths
@@ -335,7 +382,7 @@ async function generatePDF(data, logoUrl) {
       const cellText = row[header.key] || "";
       const lines = splitTextIntoLines(
           cellText.toString(),
-          columnWidths[i] - 10,
+          columnWidths[i] + 30,
           fontSize,
           font,
       );
@@ -345,10 +392,10 @@ async function generatePDF(data, logoUrl) {
     const spaceForFooter = footerMargin + 85 + footerFontSize * 4;
     // eslint-disable-next-line max-len
     if (index === data.length - 1 && yPosition - maxLines * rowHeight < spaceForFooter) {
-      page = pdfDoc.addPage(PageSizes.Letter);
+      page = pdfDoc.addPage([1280, 792]);
       yPosition = height - 50; // Reiniciar yPosition para la nueva página
     } else if (yPosition - maxLines * rowHeight < 60 + footerMargin) {
-      page = pdfDoc.addPage(PageSizes.Letter);
+      page = pdfDoc.addPage([1280, 792]);
       yPosition = height - 50; // Reiniciar yPosition para la nueva página
     }
 
@@ -372,7 +419,7 @@ async function generatePDF(data, logoUrl) {
       const cellText = row[header.key] || "";
       const lines = splitTextIntoLines(
           cellText.toString(),
-          columnWidths[i] - 10,
+          columnWidths[i] + 30,
           fontSize,
           font,
       );

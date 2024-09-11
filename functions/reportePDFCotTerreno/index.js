@@ -120,7 +120,8 @@ const createPdf = async (req, res) => {
 
     const storage = getStorage().bucket("aion-crm-asm.appspot.com");
 
-    const destination = `pdfs/${clientData.name}-${new Date(Date.now())}.pdf`;
+    // eslint-disable-next-line max-len
+    const destination = `pdfs/cotizaciones/${clientData.name}-${new Date(Date.now())}.pdf`;
 
     // Subir el archivo al bucket
     const file = storage.file(destination);
@@ -428,24 +429,69 @@ async function generatePDF(resultados, logoUrl, planoUrl) {
     yFields -= 30;
   });
 
+  page.drawRectangle({
+    x: xFields + 90,
+    y: yFields - 5,
+    width: 40,
+    height: rowHeight,
+    borderColor: rgb(0.635, 0.635, 0.635),
+    borderWidth: 1,
+  });
+
+  page.drawRectangle({
+    x: xFields + 130,
+    y: yFields - 5,
+    width: 90,
+    height: rowHeight,
+    borderColor: rgb(0.635, 0.635, 0.635),
+    borderWidth: 1,
+  });
+
+  page.drawRectangle({
+    x: xFields + 220,
+    y: yFields - 5,
+    width: 80,
+    height: rowHeight,
+    borderColor: rgb(0.635, 0.635, 0.635),
+    borderWidth: 1,
+  });
+
+  page.drawText("Cuota", {
+    x: xFields + 95,
+    y: yFields,
+    size: fontSize,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  page.drawText("Fecha", {
+    x: xFields + 135,
+    y: yFields,
+    size: fontSize,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  page.drawText("Valor", {
+    x: xFields + 225,
+    y: yFields,
+    size: fontSize,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  yFields -= 20;
+
   resultados.cuotasTotales.forEach((cuota) => {
     if (yFields - rowHeight < footerHeight + marginBottom) {
       page = pdfDoc.addPage(PageSizes.Letter);
       yFields = height - marginTop; // Reiniciar la posición Y
     }
 
-    page.drawText("Cuota:", {
-      x: xFields,
-      y: yFields,
-      size: fontSize,
-      font: fontBold,
-      color: rgb(0, 0, 0),
-    });
-
     page.drawRectangle({
-      x: xFields + 100,
+      x: xFields + 90,
       y: yFields - 5,
-      width: 30,
+      width: 40,
       height: rowHeight,
       borderColor: rgb(0.635, 0.635, 0.635),
       borderWidth: 1,
@@ -470,7 +516,7 @@ async function generatePDF(resultados, logoUrl, planoUrl) {
     });
 
     page.drawText(`${cuota.numCuota}`, {
-      x: xFields + 110,
+      x: xFields + 95,
       y: yFields,
       size: fontSize,
       font,
@@ -486,7 +532,7 @@ async function generatePDF(resultados, logoUrl, planoUrl) {
     });
 
     page.drawText(cuota.valor, {
-      x: xFields + 230,
+      x: xFields + 225,
       y: yFields,
       size: fontSize,
       font,
@@ -496,12 +542,12 @@ async function generatePDF(resultados, logoUrl, planoUrl) {
     yFields -= 20;
   });
 
+  yFields -= 100;
+
   if (yFields - rowHeight < footerHeight + marginBottom) {
     page = pdfDoc.addPage(PageSizes.Letter);
-    yFields = height - marginTop; // Reiniciar la posición Y
+    yFields = height - marginTop - 100; // Reiniciar la posición Y
   }
-
-  yFields -= 90;
 
   page.drawRectangle({
     x: xFields,

@@ -307,9 +307,10 @@ async function generatePDF(resultados, logoUrl, planoUrl) {
   // Dibujar el logo en la página
   page.drawImage(logoImage, {
     x: width / 3,
-    y: height - logoDims.height - 20,
+    y: logoDims.height > 90?
+      height - logoDims.height : height - logoDims.height - 20,
     width: logoDims.width * 2,
-    height: logoDims.height * 1.2,
+    height: logoDims.height > 90? logoDims.height : logoDims.height * 1.2,
   });
 
   // Dibujar la imagen 1 en la página

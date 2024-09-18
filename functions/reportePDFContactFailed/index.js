@@ -164,10 +164,7 @@ const createPdf = async (req, res) => {
       console.log(`El PDF grupo ${index + 1} ha sido subido a ${destination}`);
 
       // Obtener URL pública del archivo subido
-      const [url] = await file.getSignedUrl({
-        action: "read",
-        expires: Date.now() + 60 * 60 * 1000,
-      });
+      const url = `https://firebasestorage.googleapis.com/v0/b/aion-crm-asm.appspot.com/o/${encodeURIComponent(destination)}?alt=media`;
 
       // Guardar en la colección pdfProspectos en Firestore y obtener el ID
       const docRef = await db.collection("pdfSeguimientos").add({
@@ -302,9 +299,10 @@ async function generatePDF(data, logoUrl) {
   // Dibujar el logo en la página
   page.drawImage(logoImage, {
     x: 35,
-    y: height - logoDims.height - 20,
+    y: logoDims.height > 90?
+      height - logoDims.height : height - logoDims.height - 20,
     width: logoDims.width,
-    height: logoDims.height,
+    height: logoDims.height > 90? logoDims.height - 20: logoDims.height,
   });
 
   // Establecer las fuentes para el texto

@@ -368,7 +368,8 @@ const whatsappNotif = async (_, res) => {
       const payments = await db.collection("payments")
           .where("contactID", "==", doc.ref)
           .where("isPaid", "==", false)
-          .where("planDate", "<=", diasDesdeHoy)
+          .where("planDate", ">=", diasDesdeHoy)
+          .where("planDate", "<=", now)
           .get();
 
       const filteredPayments = payments.docs.filter((paymentDoc) => {
@@ -400,8 +401,7 @@ const whatsappNotif = async (_, res) => {
       const paymentsFuture = await db.collection("payments")
           .where("contactID", "==", doc.ref)
           .where("isPaid", "==", false)
-          .where("planDate", "<=", diasDespuesHoy)
-          .where("planDate", ">=", now)
+          .where("planDate", ">=", diasDespuesHoy)
           .get();
 
       const filteredPaymentsFuture = paymentsFuture.docs.filter((paymentDoc) => {
@@ -464,4 +464,4 @@ const whatsappNotif = async (_, res) => {
   }
 };
 
-exports.whatsappNotif = onSchedule("30 14 * * 1-5", whatsappNotif);
+exports.whatsappNotif = onSchedule({schedule: "30 09 * * 1-5", timeZone: "America/Guayaquil"}, whatsappNotif);

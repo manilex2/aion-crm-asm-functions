@@ -51,6 +51,8 @@ const createPdf = async (req, res) => {
     // Convertir a objetos Date
     let start = new Date(startDate);
     let end = new Date(finalDate);
+    const fechaStartPDF = new Date(startDate);
+    const fechaEndPDF = new Date(finalDate);
 
     const leadFollowUpsData = (await db
         .collection("leadFollowUps")
@@ -101,8 +103,10 @@ const createPdf = async (req, res) => {
 
     const storage = getStorage().bucket("aion-crm-asm.appspot.com");
 
+    console.log(start);
+
     // eslint-disable-next-line max-len
-    const destination = `pdfs/leads/inicio-${start.getDate() + "-" + start.getMonth() + 1 + "-" + start.getFullYear()}-final-${end.getDate() + "-" + end.getMonth() + 1 + "-" + end.getFullYear()}-${new Date(Date.now())}.pdf`;
+    const destination = `pdfs/leads/inicio-${fechaStartPDF.getDate() + "-" + (fechaStartPDF.getMonth() + 1) + "-" + fechaStartPDF.getFullYear()}-final-${fechaEndPDF.getDate() + "-" + (fechaEndPDF.getMonth() + 1) + "-" + fechaEndPDF.getFullYear()}-${new Date(Date.now())}.pdf`;
 
     // Subir el archivo al bucket
     const file = storage.file(destination);
@@ -268,9 +272,10 @@ async function generatePDF(data, fechaInicio, fechaFin, logoUrl) {
   // Dibujar el logo en la página
   page.drawImage(logoImage, {
     x: 35,
-    y: height - logoDims.height - 20,
+    y: logoDims.height > 90?
+      height - logoDims.height : height - logoDims.height - 20,
     width: logoDims.width,
-    height: logoDims.height,
+    height: logoDims.height > 90? logoDims.height - 20 : logoDims.height,
   });
 
   // Establecer las fuentes para el texto
